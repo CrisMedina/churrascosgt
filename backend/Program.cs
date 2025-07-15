@@ -1,8 +1,60 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
 using backend.Data;
 using backend.Models;
+using System.Security.Cryptography;
+using Microsoft.AspNetCore.Mvc; 
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text.Json;
+
+static string CalcularHash(string contraseña)
+{
+    using var sha256 = SHA256.Create();
+    var bytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(contraseña));
+    return Convert.ToBase64String(bytes);
+}
+
+static void CrearUsuarioAdmin(AppDbContext db)
+{
+    if (!db.Usuarios.Any(u => u.NombreUsuario == "admin"))
+    {
+        var admin = new Usuario
+        {
+            NombreUsuario = "admin",
+            ContraseñaHash = CalcularHash("admin"),
+            Rol = "admin"
+        };
+
+        db.Usuarios.Add(admin);
+        db.SaveChanges();
+        Console.WriteLine("Usuario admin creado correctamente.");
+    }
+}
+
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddScoped<ServicioAutenticacion>();
+
+builder.Services.AddAuthentication("Bearer")
+    .AddJwtBearer("Bearer", options =>
+    {
+        var clave = builder.Configuration["Jwt:Key"] ?? "clave-ultra-secreta";
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = false,
+            ValidateAudience = false,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.ASCII.GetBytes(clave))
+        };
+    });
+
+builder.Services.AddAuthorization();
+
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
@@ -10,10 +62,56 @@ builder.Services.AddCors();
 
 var app = builder.Build();
 
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    CrearUsuarioAdmin(db);
+}
+
 app.UseCors(policy =>
     policy.AllowAnyOrigin()
           .AllowAnyMethod()
           .AllowAnyHeader());
+
+app.UseAuthentication();
+app.UseAuthorization(); 
+
+app.MapPost("/api/registrar", async (SolicitudRegistro solicitud, ServicioAutenticacion servicio) =>
+{
+    var nuevoUsuario = await servicio.RegistrarUsuarioAsync(solicitud.NombreUsuario, solicitud.Contraseña, solicitud.Rol);
+    return Results.Ok(nuevoUsuario);
+});
+
+
+app.MapPost("/api/iniciar-sesion", async (SolicitudInicioSesion solicitud, ServicioAutenticacion servicio) =>
+{
+    var usuario = await servicio.ValidarUsuarioAsync(solicitud.NombreUsuario, solicitud.Contraseña);
+    if (usuario == null) return Results.Unauthorized();
+
+    var token = GeneradorJwt.CrearToken(usuario, builder.Configuration["Jwt:Key"] ?? "clave-ultra-secreta");
+    return Results.Ok(new { token });
+});
+
+app.MapGet("/api/usuario-actual", async (HttpContext http, AppDbContext db) =>
+{
+    var nombreUsuario = http.User.Identity?.Name;
+
+    if (string.IsNullOrEmpty(nombreUsuario))
+        return Results.Unauthorized();
+
+    var usuario = await db.Usuarios.FirstOrDefaultAsync(u => u.NombreUsuario == nombreUsuario);
+
+    if (usuario == null)
+        return Results.NotFound();
+
+    return Results.Ok(new
+    {
+        usuario.Id,
+        usuario.NombreUsuario,
+        usuario.Rol
+    });
+})
+.RequireAuthorization(); 
 
 app.MapGet("/", () => "API churrascosGT corriendo correctamente");
 
@@ -21,7 +119,9 @@ app.MapGet("/", () => "API churrascosGT corriendo correctamente");
 
 // Obtener todos los productos
 app.MapGet("/productos", async (AppDbContext db) =>
-    await db.Productos.ToListAsync());
+    await db.Productos.ToListAsync())
+    .RequireAuthorization();
+    //.RequireAuthorization(new AuthorizeAttribute { Roles = "admin" });
 
 // Obtener un producto por ID
 app.MapGet("/productos/{id}", async (int id, AppDbContext db) =>
@@ -157,7 +257,10 @@ app.MapDelete("/combos/{id}", async (int id, AppDbContext db) =>
 
 // Obtener todos los dulces
 app.MapGet("/dulces", async (AppDbContext db) =>
-    await db.DulcesTipicos.ToListAsync());
+{
+    var lista = await db.DulcesTipicos.ToListAsync();
+    return Results.Ok(lista);
+});
 
 // Obtener un dulce por ID
 app.MapGet("/dulces/{id}", async (int id, AppDbContext db) =>
@@ -198,5 +301,70 @@ app.MapDelete("/dulces/{id}", async (int id, AppDbContext db) =>
     await db.SaveChangesAsync();
     return Results.NoContent();
 });
+
+app.MapPost("/ventas/recomendar-combo", async ([FromBody] List<string> productos) =>
+{
+    var prompt = $"Tengo estos productos en el carrito: {string.Join(", ", productos)}. ¿Qué combo me recomiendas?";
+
+    var modelos = new[]
+    {
+        "meta-llama/llama-3-8b-instruct",
+        "mistralai/mixtral-8x7b",
+        "nousresearch/nous-capybara-7b"
+    };
+
+    using var client = new HttpClient();
+    client.DefaultRequestHeaders.Authorization =
+        new AuthenticationHeaderValue("Bearer", "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");
+
+    client.DefaultRequestHeaders.Add("HTTP-Referer", "https://openrouter.ai");
+
+    foreach (var modelo in modelos)
+    {
+        var body = new
+        {
+            model = modelo,
+            messages = new[]
+            {
+                new { role = "user", content = prompt }
+            }
+        };
+
+        var response = await client.PostAsJsonAsync("https://openrouter.ai/api/v1/chat/completions", body);
+
+        if (response.IsSuccessStatusCode &&
+            response.Content.Headers.ContentType?.MediaType == "application/json")
+        {
+            var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+            var mensaje = json.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
+            return Results.Ok(mensaje);
+        }
+    }
+
+    return Results.Problem("No se pudo obtener respuesta de ningún modelo. Revisa tu clave o intenta más tarde.");
+});
+
+app.MapGet("/test-openrouter", async () =>
+{
+    using var client = new HttpClient();
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "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");
+
+    var body = new
+    {
+        model = "meta-llama/llama-3-8b-instruct",
+        messages = new[]
+        {
+            new { role = "user", content = "Hola, ¿qué puedes recomendarme?" }
+        }
+    };
+    client.DefaultRequestHeaders.Add("HTTP-Referer", "https://openrouter.ai");
+
+    var response = await client.PostAsJsonAsync("https://openrouter.ai/api/v1/chat/completions", body);
+
+    var result = await response.Content.ReadAsStringAsync();
+    return Results.Ok(result);
+});
+
+
 
 app.Run();

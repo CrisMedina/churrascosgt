@@ -11,6 +11,8 @@ namespace backend.Data
         public DbSet<Guarnicion> Guarniciones { get; set; }
         public DbSet<Combo> Combos { get; set; }
         public DbSet<DulceTipico> DulcesTipicos { get; set; }
+        public DbSet<Usuario> Usuarios { get; set; }
+
 
     }
 }
