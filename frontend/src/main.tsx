@@ -22,7 +22,6 @@ import { Toaster } from 'react-hot-toast';
 
 //inventario
 import Carnes from './pages/inventario/Carnes';
-import Dulces from './pages/inventario/Dulces';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -35,7 +34,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <Route path="/productos" element={<Productos />} />
           <Route path="/guarniciones" element={<Guarniciones />} />
           <Route path="/combos" element={<Combos />} />
-          <Route path="/dulces" element={<Dulces />} />
           <Route path="/login" element={<Login />} />
           <Route path="/registro" element={<Registro />} />
           <Route path="/dashboard" element={<Dashboard />} />
@@ -47,7 +45,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <Route path="/combos-especiales" element={<VistaComboEspecial />} />
 
           <Route path="/inventario/carnes" element={<Carnes />} />
-          <Route path="/inventario/dulces" element={<Dulces />} />
         </Routes>
       </AuthProvider>
       </ProveedorCarrito>

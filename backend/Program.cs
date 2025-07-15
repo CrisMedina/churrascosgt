@@ -315,7 +315,7 @@ app.MapPost("/ventas/recomendar-combo", async ([FromBody] List<string> productos
 
     using var client = new HttpClient();
     client.DefaultRequestHeaders.Authorization =
-        new AuthenticationHeaderValue("Bearer", "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");
+        new AuthenticationHeaderValue("Bearer", "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");
 
     client.DefaultRequestHeaders.Add("HTTP-Referer", "https://openrouter.ai");
 
@@ -347,7 +347,7 @@ app.MapPost("/ventas/recomendar-combo", async ([FromBody] List<string> productos
 app.MapGet("/test-openrouter", async () =>
 {
     using var client = new HttpClient();
-    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "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");
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "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");
 
     var body = new
     {
@@ -365,6 +365,41 @@ app.MapGet("/test-openrouter", async () =>
     return Results.Ok(result);
 });
 
+app.MapGet("/carnes", async (AppDbContext db) =>
+{
+    return Results.Ok(await db.Carnes.ToListAsync());
+});
+
+app.MapPost("/carnes", async (AppDbContext db, Carne carne) =>
+{
+    db.Carnes.Add(carne);
+    await db.SaveChangesAsync();
+    return Results.Created($"/api/carnes/{carne.Id}", carne);
+});
+
+app.MapPut("/carnes/{id}", async (int id, AppDbContext db, Carne carneActualizada) =>
+{
+    var carne = await db.Carnes.FindAsync(id);
+    if (carne is null) return Results.NotFound();
+
+    carne.Nombre = carneActualizada.Nombre;
+    carne.Tipo = carneActualizada.Tipo;
+    carne.CantidadLibras = carneActualizada.CantidadLibras;
+    carne.PrecioPorLibra = carneActualizada.PrecioPorLibra;
+
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+});
+
+app.MapDelete("/carnes/{id}", async (int id, AppDbContext db) =>
+{
+    var carne = await db.Carnes.FindAsync(id);
+    if (carne is null) return Results.NotFound();
+
+    db.Carnes.Remove(carne);
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+});
 
 
 app.Run();

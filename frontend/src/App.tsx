@@ -81,7 +81,6 @@ export default function App() {
       />
 
       <Route path="/inventario/carnes" element={<Carnes />} />
-      <Route path="/inventario/dulces" element={<Dulces />} />
       <Route path="/registro" 
       element={<Registro />} />
 

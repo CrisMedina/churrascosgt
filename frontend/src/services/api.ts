@@ -32,8 +32,15 @@ export const obtenerRecomendacionCombo = async (productos: string[]) => {
   return respuesta.data;
 };
 
+export const obtenerDulces = async (token: string) => {
+  const respuesta = await api.get('/dulces', {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  return respuesta.data;
+};
 
-export const obtenerDulces = () => api.get("/dulces");
 export const crearDulce = (data: any) => api.post("/dulces", data);
 export const actualizarDulce = (id: number, data: any) => api.put(`/dulces/${id}`, data);
 export const eliminarDulce = (id: number) => api.delete(`/dulces/${id}`);
